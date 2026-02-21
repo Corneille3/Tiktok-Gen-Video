@@ -40,18 +40,18 @@ class TemplateConfig:
     hook_start: float = 0.0
     hook_end: float = 2.0
 
-    qa_start: float = 2.0
+    qa_start: float = 4.0
 
-    engage_start: float = 15.0
-    engage_end: float = 18.0
+    engage_start: float = 13.0
+    engage_end: float = 16.0
 
-    reveal_start: float = 18.0
-    reveal_end: float = 22.0
+    reveal_start: float = 16.0
+    reveal_end: float = 18.0
 
-    explain_start: float = 22.0
+    explain_start: float = 18.0
     explain_end: float = 35.0
 
-    outro_last_seconds: float = 3.0
+    outro_last_seconds: float = 0.0
 
     # Colors (canonical)
     bg: str = "#0F172A"
@@ -90,6 +90,7 @@ class AWSVideoTemplate:
         question_obj: Dict[str, Any],
         explanation: str,
         audio_path: str,
+        timeline: Dict[str, float | None],
         config: TemplateConfig | None = None,
     ):
         self.cert = cert.upper()
@@ -97,6 +98,7 @@ class AWSVideoTemplate:
         self.q = question_obj
         self.explanation = explanation
         self.audio_path = audio_path
+        self.timeline = timeline
         self.cfg = config or TemplateConfig()
 
         if not Path(audio_path).exists():
@@ -165,6 +167,52 @@ class AWSVideoTemplate:
         s = min(max(start, 0.0), self.dur)
         e = min(max(end, 0.0), self.dur)
         return s, max(s, e)
+
+    def _fit_answer_layout(self, texts: List[str], max_width: int, available: float) -> Tuple[int, float, List[int]]:
+        # Fit 4 answers into available height by shrinking font size.
+        min_size = 36
+        for fontsize in range(46, min_size - 1, -1):
+            font_path = self._font(self.cfg.font_med)
+            try:
+                font = ImageFont.truetype(font_path, fontsize)
+            except Exception:
+                font = ImageFont.load_default()
+
+            pad_y = 6
+            ascent, descent = font.getmetrics()
+            line_h = ascent + descent + 10
+
+            heights: List[int] = []
+            for t in texts:
+                lines = self._wrap_lines(t, font, max_width - 16)  # pad_x * 2
+                h = pad_y * 2 + line_h * len(lines)
+                heights.append(h)
+
+            max_h = max(heights) if heights else 0
+            line_gap = max(max_h + 12, 80)
+            total = max_h + line_gap * max(len(texts) - 1, 1)
+            if total <= available:
+                return fontsize, line_gap, heights
+
+        # If still too tall at min size, clamp gap to 0.
+        fontsize = min_size
+        font_path = self._font(self.cfg.font_med)
+        try:
+            font = ImageFont.truetype(font_path, fontsize)
+        except Exception:
+            font = ImageFont.load_default()
+
+        pad_y = 6
+        ascent, descent = font.getmetrics()
+        line_h = ascent + descent + 10
+        heights = []
+        for t in texts:
+            lines = self._wrap_lines(t, font, max_width - 16)
+            h = pad_y * 2 + line_h * len(lines)
+            heights.append(h)
+        max_h = max(heights) if heights else 0
+        line_gap = max(max_h + 12, 80)
+        return fontsize, line_gap, heights
 
     def make_text_clip(
         self,
@@ -261,8 +309,8 @@ class AWSVideoTemplate:
     def build_question(self):
         cfg = self.cfg
         card_y = cfg.top_bar_h + cfg.card_top_gap
-        start = cfg.qa_start               # 2s
-        end = cfg.engage_start             # 15s
+        start = cfg.hook_end
+        end = cfg.qa_start
         d = max(end - start, 0.1)
         q_clip = self.make_text_clip(
             self.q["question"],
@@ -274,45 +322,64 @@ class AWSVideoTemplate:
             shadow=True,
         ).set_position((90, card_y + 60)).set_start(start).set_duration(d).fadein(0.25)
         # Optional overlay hint (recommended for long questions)
-        hint = self.make_text_clip(
-            "Pause to read • Answers next 👇",
+        hint_text = "Pause to read • Answers next 👇"
+        hint_text_clip = self.make_text_clip(
+            hint_text,
             fontsize=40,
-            color_hex="#FFFFFF",
+            color_hex=self.cfg.accent,
             max_width=self.cfg.safe_width,
             align="center",
             font_path=self._font(self.cfg.font_med),
             shadow=False,
-        ).set_position(("center", card_y + 980)).set_start(start).set_duration(d).set_opacity(0.9)
+        )
+        hint_pad_x, hint_pad_y = 22, 10
+        hint_bg = self._rounded_rect_rgba(
+            (hint_text_clip.w + hint_pad_x * 2, hint_text_clip.h + hint_pad_y * 2),
+            radius=26,
+            fill_rgba=(0, 0, 0, int(255 * 0.7)),
+        )
+        hint_y = (card_y + 60) + q_clip.h + 10
+        hint = CompositeVideoClip(
+            [
+                ImageClip(hint_bg).set_position(("center", hint_y - hint_pad_y)),
+                hint_text_clip.set_position(("center", hint_y)),
+            ],
+            size=(cfg.width, cfg.height),
+        ).set_start(start).set_duration(d).set_opacity(0.95)
 
         return [q_clip, hint]
 
     def build_answers(self) -> List:
         cfg = self.cfg
         card_y = cfg.top_bar_h + cfg.card_top_gap
-        start = cfg.engage_start           # 15s
-        end = cfg.reveal_start             # 18s
+        start = cfg.qa_start
+        end = cfg.engage_start
         d = max(end - start, 0.1)
 
-        answer_start_y = card_y + 360      # fixed now (no need dynamic question height)
-        line_gap = 105
+        c = self.q["choices"]
+        texts = [f"A. {c['A']}", f"B. {c['B']}", f"C. {c['C']}", f"D. {c['D']}"]
+        available = (cfg.height - 210) - (card_y + 360)
+        fontsize, line_gap, _ = self._fit_answer_layout(texts, cfg.safe_width, available)
 
-        def make(letter: str, text: str, idx: int):
-            return self.make_text_clip(
+        answer_start_y = card_y + 360
+        y = answer_start_y
+        clips: List = []
+        self._answer_positions = {}
+
+        for letter, text in [("A", c["A"]), ("B", c["B"]), ("C", c["C"]), ("D", c["D"])]:
+            clip = self.make_text_clip(
                 f"{letter}. {text}",
-                fontsize=46,
+                fontsize=fontsize,
                 color_hex=self.cfg.a_text,
                 max_width=self.cfg.safe_width,
                 align="left",
                 font_path=self._font(self.cfg.font_med),
-            ).set_position((110, answer_start_y + idx * line_gap)).set_start(start).set_duration(d).fadein(0.25)
+            ).set_position((110, y)).set_start(start).set_duration(d).fadein(0.25)
+            clips.append(clip)
+            self._answer_positions[letter] = (y, clip.h)
+            y += line_gap
 
-        c = self.q["choices"]
-        return [
-            make("A", c["A"], 0),
-            make("B", c["B"], 1),
-            make("C", c["C"], 2),
-            make("D", c["D"], 3),
-        ]
+        return clips
 
     def build_engagement_prompt(self):
         cfg = self.cfg
@@ -323,13 +390,15 @@ class AWSVideoTemplate:
 
         card_y = cfg.top_bar_h + cfg.card_top_gap
         engage = self.make_text_clip(
-            "Comment your answer 👇",
+            "Comment your answer 👉",
             fontsize=54,
             color_hex="#FFFFFF",
             max_width=self.cfg.safe_width,
             align="center",
             font_path=self._font(self.cfg.font_bold),
-        ).set_position(("center", card_y + 980)).set_start(s).set_duration(d).fadein(0.2).fadeout(0.2)
+        )
+        engage_y = card_y + (cfg.card_height - engage.h) // 2
+        engage = engage.set_position(("center", engage_y)).set_start(s).set_duration(d).fadein(0.2).fadeout(0.2)
         return engage
 
     def build_reveal(self):
@@ -340,16 +409,20 @@ class AWSVideoTemplate:
             return None
 
         card_y = cfg.top_bar_h + cfg.card_top_gap
-        answer_start_y = card_y + 360
-        line_gap = 105
-
         correct = self.q["correct_answer"]
-        correct_idx = {"A": 0, "B": 1, "C": 2, "D": 3}[correct]
-
         hl_x = 90
-        hl_y = answer_start_y + correct_idx * line_gap - 18
         hl_w = cfg.width - 180
         hl_h = 90
+
+        if hasattr(self, "_answer_positions") and correct in self._answer_positions:
+            y, h = self._answer_positions[correct]
+            hl_y = y - 18
+            hl_h = h + 36
+        else:
+            answer_start_y = card_y + 360
+            line_gap = 105
+            correct_idx = {"A": 0, "B": 1, "C": 2, "D": 3}[correct]
+            hl_y = answer_start_y + correct_idx * line_gap - 18
 
         # green rounded rectangle behind correct answer
         hl_img = self._rounded_rect_rgba((hl_w, hl_h), radius=26, fill_rgba=(0, 255, 127, 55))
@@ -366,7 +439,9 @@ class AWSVideoTemplate:
 
     def build_explanation(self):
         cfg = self.cfg
-        s, e = self._clip_window(cfg.explain_start, cfg.explain_end)
+        explain_start = cfg.explain_start
+        explain_end = max(explain_start, self.dur - cfg.outro_last_seconds)
+        s, e = self._clip_window(explain_start, explain_end)
         d = max(e - s, 0.0)
         if d <= 0:
             return None
@@ -379,7 +454,7 @@ class AWSVideoTemplate:
             max_width=self.cfg.safe_width,
             align="left",
             font_path=self._font(self.cfg.font_med),
-        ).set_position((110, card_y + 1080)).set_start(s).set_duration(d).fadein(0.25)
+        ).set_position((90, card_y + 60)).set_start(s).set_duration(d).fadein(0.25)
         return exp
 
     def build_footer(self):

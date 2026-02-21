@@ -36,7 +36,12 @@ def main():
         explanation = generate_explanation(q, model="gpt-4o-mini")
         print("Explanation:", explanation)
 
-        audio_path = generate_voice_mp3(cert=cert, question_obj=q, explanation=explanation, out_dir="output/audio")
+        audio_path, timeline = generate_voice_mp3(
+            cert=cert,
+            question_obj=q,
+            explanation=explanation,
+            out_dir="output/audio",
+        )
         print("Audio:", audio_path)
 
         video_path = render_video(
@@ -45,6 +50,7 @@ def main():
             question_obj=q,
             explanation=explanation,
             audio_path=audio_path,
+            timeline=timeline,
             out_dir="output/videos",
         )
         print("Video:", video_path)

@@ -9,6 +9,7 @@ def render_video(
     question_obj: Dict[str, Any],
     explanation: str,
     audio_path: str,
+    timeline: Dict[str, float | None],
     out_dir: str = "output/videos",
 ) -> str:
     qid = int(question_obj["id"])
@@ -20,6 +21,7 @@ def render_video(
         question_obj=question_obj,
         explanation=explanation,
         audio_path=audio_path,
+        timeline=timeline,
         config=TemplateConfig(),
     )
     return template.render(out_path)
