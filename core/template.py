@@ -50,7 +50,7 @@ class TemplateConfig:
 
     explain_start: float = 18.0
 
-    outro_last_seconds: float = 3.0
+    outro_last_seconds: float = 0.0
 
     # Colors (canonical)
     bg: str = "#0F172A"
@@ -454,6 +454,32 @@ class AWSVideoTemplate:
         ).set_position((90, card_y + 60)).set_start(s).set_duration(d).fadein(0.25)
         return exp
 
+    def build_subtitles(self) -> List:
+        cfg = self.cfg
+        clips: List = []
+
+        def add(txt: str, start: float, end: float):
+            s, e = self._clip_window(start, end)
+            d = max(e - s, 0.0)
+            if d <= 0:
+                return
+            clip = self.make_text_clip(
+                txt,
+                fontsize=44,
+                color_hex="#FFFFFF",
+                max_width=cfg.safe_width,
+                align="center",
+                font_path=self._font(cfg.font_med),
+                shadow=True,
+            ).set_position(("center", cfg.height - 260)).set_start(s).set_duration(d)
+            clips.append(clip)
+
+        add("Comment A, B, C, or D.", cfg.engage_start, cfg.engage_end)
+        add(f"The correct answer is {self.q['correct_answer']}.", cfg.reveal_start, cfg.reveal_end)
+        add(self.explanation, cfg.explain_start, self.dur)
+
+        return clips
+
     def build_footer(self):
         cfg = self.cfg
         # Footer branding (always visible, plus it serves as "Outro" messaging)
@@ -505,6 +531,7 @@ class AWSVideoTemplate:
         if exp:
             layers.append(exp)
 
+        layers.extend(self.build_subtitles())
         layers.append(self.build_footer())
 
         video = CompositeVideoClip(layers, size=(self.cfg.width, self.cfg.height)).set_audio(self.build_audio())
