@@ -49,9 +49,8 @@ class TemplateConfig:
     reveal_end: float = 18.0
 
     explain_start: float = 18.0
-    explain_end: float = 35.0
 
-    outro_last_seconds: float = 0.0
+    outro_last_seconds: float = 3.0
 
     # Colors (canonical)
     bg: str = "#0F172A"
@@ -90,7 +89,6 @@ class AWSVideoTemplate:
         question_obj: Dict[str, Any],
         explanation: str,
         audio_path: str,
-        timeline: Dict[str, float | None],
         config: TemplateConfig | None = None,
     ):
         self.cert = cert.upper()
@@ -98,7 +96,6 @@ class AWSVideoTemplate:
         self.q = question_obj
         self.explanation = explanation
         self.audio_path = audio_path
-        self.timeline = timeline
         self.cfg = config or TemplateConfig()
 
         if not Path(audio_path).exists():
@@ -390,7 +387,7 @@ class AWSVideoTemplate:
 
         card_y = cfg.top_bar_h + cfg.card_top_gap
         engage = self.make_text_clip(
-            "Comment your answer 👉",
+            "Comment your answer 👇",
             fontsize=54,
             color_hex="#FFFFFF",
             max_width=self.cfg.safe_width,
