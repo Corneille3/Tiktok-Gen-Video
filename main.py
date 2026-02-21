@@ -15,6 +15,7 @@ def main():
     parser.add_argument("--cert", required=True, help="cert file name in /data (e.g. saa)")
     parser.add_argument("--count", type=int, default=1, help="how many videos to generate")
     parser.add_argument("--day", default="Day 1", help='label shown in top bar (e.g. "Day 7")')
+    parser.add_argument("--offline", action="store_true", help="use cached explanations only")
     args = parser.parse_args()
 
     cert = args.cert.lower().strip()
@@ -33,7 +34,7 @@ def main():
         qid = q["id"]
         print(f"\n=== Q{qid} ===")
 
-        explanation = generate_explanation(q, model="gpt-4o-mini")
+        explanation = generate_explanation(q, model="gpt-4o-mini", cert=cert, offline=args.offline)
         print("Explanation:", explanation)
 
         audio_path = generate_voice_mp3(

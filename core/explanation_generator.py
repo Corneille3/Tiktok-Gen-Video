@@ -1,5 +1,9 @@
+import json
 import os
 import re
+import hashlib
+from datetime import datetime, timezone
+from pathlib import Path
 from typing import Any, Dict
 
 from openai import OpenAI
@@ -24,7 +28,32 @@ def _enforce_two_sentences(text: str) -> str:
     return "This option best fits the requirement. It provides the right service for the scenario."
 
 
-def generate_explanation(question_obj: Dict[str, Any], model: str = "gpt-4o-mini") -> str:
+def _cache_path(cert: str, input_hash: str) -> Path:
+    return Path("data/cache/explanations") / cert / f"{input_hash}.json"
+
+
+def _compute_input_hash(question_obj: Dict[str, Any], model: str) -> str:
+    payload = {
+        "model": model,
+        "question": question_obj["question"],
+        "choices": {
+            "A": question_obj["choices"]["A"],
+            "B": question_obj["choices"]["B"],
+            "C": question_obj["choices"]["C"],
+            "D": question_obj["choices"]["D"],
+        },
+        "correct_answer": question_obj["correct_answer"],
+    }
+    raw = json.dumps(payload, ensure_ascii=True, sort_keys=True).encode("utf-8")
+    return hashlib.sha256(raw).hexdigest()
+
+
+def generate_explanation(
+    question_obj: Dict[str, Any],
+    model: str = "gpt-4o-mini",
+    cert: str | None = None,
+    offline: bool = False,
+) -> str:
     """
     Output must be:
     - 2 short sentences
@@ -32,6 +61,20 @@ def generate_explanation(question_obj: Dict[str, Any], model: str = "gpt-4o-mini
     - no heavy jargon
     - optimized for ~30s TikTok
     """
+    if not cert:
+        raise ValueError("Missing cert for explanation cache path.")
+
+    input_hash = _compute_input_hash(question_obj, model)
+    cache_path = _cache_path(cert, input_hash)
+
+    if cache_path.exists():
+        with cache_path.open("r", encoding="utf-8") as f:
+            cached = json.load(f)
+        return cached.get("explanation", "")
+
+    if offline:
+        raise RuntimeError(f"Cache miss in offline mode: {cache_path}")
+
     api_key = os.getenv("OPENAI_API_KEY")
     if not api_key:
         raise RuntimeError("Missing OPENAI_API_KEY in environment (.env).")
@@ -65,4 +108,28 @@ def generate_explanation(question_obj: Dict[str, Any], model: str = "gpt-4o-mini
     )
 
     raw = (resp.choices[0].message.content or "").strip()
-    return _enforce_two_sentences(raw)
+    explanation = _enforce_two_sentences(raw)
+
+    cache_path.parent.mkdir(parents=True, exist_ok=True)
+    payload = {
+        "input_hash": input_hash,
+        "cert": cert,
+        "model": model,
+        "saved_at": datetime.now(timezone.utc).isoformat(),
+        "input": {
+            "id": question_obj.get("id"),
+            "question": question_obj["question"],
+            "choices": {
+                "A": question_obj["choices"]["A"],
+                "B": question_obj["choices"]["B"],
+                "C": question_obj["choices"]["C"],
+                "D": question_obj["choices"]["D"],
+            },
+            "correct_answer": question_obj["correct_answer"],
+        },
+        "explanation": explanation,
+    }
+    with cache_path.open("w", encoding="utf-8") as f:
+        json.dump(payload, f, ensure_ascii=True, indent=2)
+
+    return explanation
