@@ -395,7 +395,7 @@ class AWSVideoTemplate:
             font_path=self._font(self.cfg.font_bold),
         )
         engage_y = card_y + (cfg.card_height - engage.h) // 2
-        engage = engage.set_position(("center", engage_y)).set_start(s).set_duration(d).fadein(0.2).fadeout(0.2)
+        engage = engage.set_position(("center", engage_y)).set_start(s).set_duration(d).fadein(0.35).fadeout(0.35)
         return engage
 
     def build_reveal(self):
