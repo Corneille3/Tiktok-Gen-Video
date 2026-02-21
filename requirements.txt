@@ -1,6 +1,6 @@
 boto3==1.34.162
 python-dotenv==1.0.1
 openai==1.40.6
-moviepy==1.0.3
+moviepy==2.1.1
 Pillow==10.4.0
 numpy==2.0.1

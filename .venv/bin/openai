@@ -1,4 +1,4 @@
-#!/home/corneille3/aws_tiktok_bot/.venv/bin/python3
+#!/home/corneille3/aws_tiktok_bot/.venv/bin/python
 # -*- coding: utf-8 -*-
 import re
 import sys
