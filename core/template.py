@@ -378,6 +378,45 @@ class AWSVideoTemplate:
 
         return clips
 
+    def build_countdown(self) -> List:
+        cfg = self.cfg
+        card_y = cfg.top_bar_h + cfg.card_top_gap
+        answer_start_y = card_y + 360
+        y = answer_start_y - 90
+
+        countdown_start = 8.0
+        countdown_end = 13.0
+        if countdown_end <= countdown_start:
+            return []
+
+        label = self.make_text_clip(
+            "Time left",
+            fontsize=32,
+            color_hex="#FFFFFF",
+            max_width=cfg.safe_width,
+            align="center",
+            font_path=self._font(cfg.font_med),
+            shadow=True,
+        ).set_position(("center", y - 50)).set_start(countdown_start).set_duration(countdown_end - countdown_start).set_opacity(0.7)
+
+        clips: List = [label]
+        for i, num in enumerate([5, 4, 3, 2, 1]):
+            s = countdown_start + i
+            e = s + 1.0
+            clip = self.make_text_clip(
+                str(num),
+                fontsize=64,
+                color_hex=cfg.accent,
+                max_width=cfg.safe_width,
+                align="center",
+                font_path=self._font(cfg.font_bold),
+                shadow=True,
+            ).set_position(("center", y)).set_start(s).set_duration(1.0).fadein(0.15).fadeout(0.15)
+            clip = clip.resize(lambda t: 1.0 + 0.06 * min(max(t, 0.0), 0.2) / 0.2)
+            clips.append(clip)
+
+        return clips
+
     def build_engagement_prompt(self):
         cfg = self.cfg
         s, e = self._clip_window(cfg.engage_start, cfg.engage_end)
@@ -484,7 +523,7 @@ class AWSVideoTemplate:
         cfg = self.cfg
         # Footer branding (always visible, plus it serves as "Outro" messaging)
         footer = self.make_text_clip(
-            "@yourhandle  •  Follow to pass AWS 🚀",
+            "@certpulse  •  Follow to pass AWS 🚀",
             fontsize=38,
             color_hex="#FFFFFF",
             max_width=self.cfg.width - 120,
@@ -497,10 +536,20 @@ class AWSVideoTemplate:
     def build_audio(self):
         music_path = os.getenv("BACKGROUND_MUSIC_PATH", "").strip()
         music_vol = float(os.getenv("BACKGROUND_MUSIC_VOLUME", "0.06"))
+        layers = [self.audio]
         if music_path and Path(music_path).exists():
             music = AudioFileClip(music_path).volumex(music_vol).set_duration(self.dur)
-            return CompositeAudioClip([music, self.audio])
-        return self.audio
+            layers.append(music)
+
+        pop_path = Path("assets/sfx/pop.wav")
+        if pop_path.exists():
+            try:
+                pop = AudioFileClip(str(pop_path)).volumex(0.2).set_start(self.cfg.reveal_start)
+                layers.append(pop)
+            except Exception:
+                pass
+
+        return CompositeAudioClip(layers) if len(layers) > 1 else self.audio
 
     # ----------------
     # Compose / Render
@@ -518,6 +567,8 @@ class AWSVideoTemplate:
         q_layers = self.build_question()
         layers.extend(q_layers if isinstance(q_layers, list) else [q_layers])
         layers.extend(self.build_answers())
+
+        layers.extend(self.build_countdown())
 
         engage = self.build_engagement_prompt()
         if engage:
