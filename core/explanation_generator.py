@@ -2,6 +2,7 @@ import json
 import os
 import re
 import hashlib
+import time
 from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any, Dict
@@ -49,9 +50,9 @@ def _compute_input_hash(question_obj: Dict[str, Any], model: str) -> str:
 
 
 def generate_explanation(
+    cert: str,
     question_obj: Dict[str, Any],
     model: str = "gpt-4o-mini",
-    cert: str | None = None,
     offline: bool = False,
 ) -> str:
     """
@@ -61,9 +62,6 @@ def generate_explanation(
     - no heavy jargon
     - optimized for ~30s TikTok
     """
-    if not cert:
-        raise ValueError("Missing cert for explanation cache path.")
-
     input_hash = _compute_input_hash(question_obj, model)
     cache_path = _cache_path(cert, input_hash)
 
@@ -101,11 +99,21 @@ def generate_explanation(
         "Output exactly two sentences."
     )
 
-    resp = client.chat.completions.create(
-        model=model,
-        messages=[{"role": "user", "content": prompt}],
-        temperature=0.4,
-    )
+    max_retries = 3
+    last_err: Exception | None = None
+    for attempt in range(max_retries):
+        try:
+            resp = client.chat.completions.create(
+                model=model,
+                messages=[{"role": "user", "content": prompt}],
+                temperature=0.4,
+            )
+            break
+        except Exception as e:
+            last_err = e
+            if attempt >= max_retries - 1:
+                raise RuntimeError(f"OpenAI call failed after {max_retries} attempts: {e}") from e
+            time.sleep(2**attempt)
 
     raw = (resp.choices[0].message.content or "").strip()
     explanation = _enforce_two_sentences(raw)

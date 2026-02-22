@@ -3,6 +3,7 @@ from pathlib import Path
 from typing import Any, Dict
 
 import boto3
+import time
 
 
 def _ssml_escape(s: str) -> str:
@@ -62,13 +63,26 @@ def generate_voice_mp3(
     Path(out_dir).mkdir(parents=True, exist_ok=True)
     out_path = Path(out_dir) / f"{cert}_q{qid:03d}.mp3"
 
-    resp = polly.synthesize_speech(
-        Text=ssml,
-        TextType="ssml",
-        OutputFormat="mp3",
-        VoiceId=voice_id,
-        Engine=engine,
-    )
+    max_retries = 3
+    last_err: Exception | None = None
+    for attempt in range(max_retries):
+        try:
+            resp = polly.synthesize_speech(
+                Text=ssml,
+                TextType="ssml",
+                OutputFormat="mp3",
+                VoiceId=voice_id,
+                Engine=engine,
+            )
+            break
+        except Exception as e:
+            last_err = e
+            if attempt >= max_retries - 1:
+                raise RuntimeError(
+                    f"Polly synth failed after {max_retries} attempts "
+                    f"(cert={cert}, qid={qid}, region={region}): {e}"
+                ) from e
+            time.sleep(2**attempt)
 
     with out_path.open("wb") as f:
         f.write(resp["AudioStream"].read())
