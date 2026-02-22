@@ -396,10 +396,11 @@ class AWSVideoTemplate:
 
         c = self.q["choices"]
         texts = [f"A. {c['A']}", f"B. {c['B']}", f"C. {c['C']}", f"D. {c['D']}"]
-        available = (cfg.height - 210) - (card_y + 360)
+        card_bottom = card_y + cfg.card_height
+        answer_start_y = card_y + 360
+        available = (card_bottom - 80) - answer_start_y
         fontsize, line_gap, _ = self._fit_answer_layout(texts, cfg.safe_width, available)
 
-        answer_start_y = card_y + 360
         y = answer_start_y
         clips: List = []
         self._answer_positions = {}
@@ -516,7 +517,12 @@ class AWSVideoTemplate:
 
     def build_reveal(self):
         cfg = self.cfg
-        s, e = self._clip_window(cfg.reveal_start, cfg.reveal_end)
+        reveal_len = max(cfg.reveal_end - cfg.reveal_start, 0.0)
+        mark_time = self._find_sentence_time("the correct answer is")
+        if mark_time is not None:
+            s, e = self._clip_window(mark_time, mark_time + reveal_len)
+        else:
+            s, e = self._clip_window(cfg.reveal_start, cfg.reveal_end)
         d = max(e - s, 0.0)
         if d <= 0:
             return None
@@ -598,6 +604,7 @@ class AWSVideoTemplate:
     def build_subtitles(self) -> List:
         cfg = self.cfg
         clips: List = []
+        subtitle_x = (cfg.width - cfg.safe_width) // 2
 
         marks = self._load_speech_marks()
         if marks:
@@ -616,7 +623,7 @@ class AWSVideoTemplate:
                     align="center",
                     font_path=self._font(cfg.font_med),
                     shadow=True,
-                ).set_position(("center", cfg.height - 260)).set_start(s).set_duration(d)
+                ).set_position((subtitle_x, cfg.height - 260)).set_start(s).set_duration(d)
                 clips.append(clip)
             return clips
 
@@ -633,7 +640,7 @@ class AWSVideoTemplate:
                 align="center",
                 font_path=self._font(cfg.font_med),
                 shadow=True,
-            ).set_position(("center", cfg.height - 260)).set_start(s).set_duration(d)
+            ).set_position((subtitle_x, cfg.height - 260)).set_start(s).set_duration(d)
             clips.append(clip)
 
         add("Comment A, B, C, or D.", cfg.engage_start, cfg.engage_end)
@@ -695,6 +702,18 @@ class AWSVideoTemplate:
             return []
         return marks
 
+    def _find_sentence_time(self, prefix: str) -> float | None:
+        marks = self._load_speech_marks()
+        if not marks:
+            return None
+        target = prefix.strip().lower()
+        for t, v, mark_type in marks:
+            if mark_type != "sentence":
+                continue
+            if v.strip().lower().startswith(target):
+                return t
+        return None
+
     def build_footer(self):
         cfg = self.cfg
         # Footer branding (always visible, plus it serves as "Outro" messaging)
@@ -720,7 +739,9 @@ class AWSVideoTemplate:
         pop_path = Path("assets/sfx/pop.wav")
         if pop_path.exists():
             try:
-                pop = AudioFileClip(str(pop_path)).volumex(0.2).set_start(self.cfg.reveal_start + 0.3)
+                mark_time = self._find_sentence_time("the correct answer is")
+                pop_start = (mark_time + 0.2) if mark_time is not None else (self.cfg.reveal_start + 0.3)
+                pop = AudioFileClip(str(pop_path)).volumex(0.2).set_start(pop_start)
                 layers.append(pop)
             except Exception:
                 pass
