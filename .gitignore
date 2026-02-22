@@ -1,3 +1,6 @@
 .env
 assets/sfx/
+__pycache__/
+output/
+data/cache/
 data/saa.json
