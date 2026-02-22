@@ -87,4 +87,30 @@ def generate_voice_mp3(
     with out_path.open("wb") as f:
         f.write(resp["AudioStream"].read())
 
+    # Speech marks for dynamic subtitles (sentence-level)
+    marks_path = Path(f"{out_path}.marks.json")
+    last_err = None
+    for attempt in range(max_retries):
+        try:
+            marks_resp = polly.synthesize_speech(
+                Text=ssml,
+                TextType="ssml",
+                OutputFormat="json",
+                SpeechMarkTypes=["sentence"],
+                VoiceId=voice_id,
+                Engine=engine,
+            )
+            break
+        except Exception as e:
+            last_err = e
+            if attempt >= max_retries - 1:
+                raise RuntimeError(
+                    f"Polly speech-marks failed after {max_retries} attempts "
+                    f"(cert={cert}, qid={qid}, region={region}): {e}"
+                ) from e
+            time.sleep(2**attempt)
+
+    with marks_path.open("wb") as f:
+        f.write(marks_resp["AudioStream"].read())
+
     return str(out_path)

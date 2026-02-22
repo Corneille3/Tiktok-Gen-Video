@@ -5,6 +5,7 @@ from typing import Any, Dict, List, Tuple
 
 import numpy as np
 from PIL import Image, ImageDraw, ImageFont
+import json
 
 # Pillow 10+ compatibility for MoviePy 1.0.3
 if not hasattr(Image, "ANTIALIAS"):
@@ -497,6 +498,27 @@ class AWSVideoTemplate:
         cfg = self.cfg
         clips: List = []
 
+        marks = self._load_speech_marks()
+        if marks:
+            for idx, (start, text) in enumerate(marks):
+                end = marks[idx + 1][0] if idx + 1 < len(marks) else self.dur
+                s, e = self._clip_window(start, end)
+                d = max(e - s, 0.0)
+                if d <= 0:
+                    continue
+                fontsize, final_text = self._fit_subtitle_text(text, max_lines=3)
+                clip = self.make_text_clip(
+                    final_text,
+                    fontsize=fontsize,
+                    color_hex="#FFFFFF",
+                    max_width=cfg.safe_width,
+                    align="center",
+                    font_path=self._font(cfg.font_med),
+                    shadow=True,
+                ).set_position(("center", cfg.height - 260)).set_start(s).set_duration(d)
+                clips.append(clip)
+            return clips
+
         def add(txt: str, start: float, end: float):
             s, e = self._clip_window(start, end)
             d = max(e - s, 0.0)
@@ -518,6 +540,57 @@ class AWSVideoTemplate:
         add(self.explanation, cfg.explain_start, self.dur)
 
         return clips
+
+    def _fit_subtitle_text(self, text: str, max_lines: int = 3) -> Tuple[int, str]:
+        # Shrink font to fit max_lines; if still too long, truncate.
+        font_path = self._font(self.cfg.font_med)
+        min_size = 32
+        for fontsize in range(44, min_size - 1, -1):
+            try:
+                font = ImageFont.truetype(font_path, fontsize)
+            except Exception:
+                font = ImageFont.load_default()
+            lines = self._wrap_lines(text, font, self.cfg.safe_width - 16)
+            if len(lines) <= max_lines:
+                return fontsize, text
+
+        # Truncate to max_lines at min size.
+        try:
+            font = ImageFont.truetype(font_path, min_size)
+        except Exception:
+            font = ImageFont.load_default()
+        lines = self._wrap_lines(text, font, self.cfg.safe_width - 16)
+        if len(lines) <= max_lines:
+            return min_size, text
+
+        trimmed = lines[:max_lines]
+        if trimmed:
+            last = trimmed[-1]
+            if len(last) > 3:
+                last = last[:-3].rstrip()
+            trimmed[-1] = f"{last}..."
+        return min_size, " ".join(trimmed)
+    def _load_speech_marks(self) -> List[Tuple[float, str]]:
+        marks_path = Path(f"{self.audio_path}.marks.json")
+        if not marks_path.exists():
+            return []
+        marks: List[Tuple[float, str]] = []
+        try:
+            with marks_path.open("r", encoding="utf-8") as f:
+                for line in f:
+                    line = line.strip()
+                    if not line:
+                        continue
+                    obj = json.loads(line)
+                    if obj.get("type") != "sentence":
+                        continue
+                    t = float(obj.get("time", 0.0)) / 1000.0
+                    v = str(obj.get("value", "")).strip()
+                    if v:
+                        marks.append((t, v))
+        except Exception:
+            return []
+        return marks
 
     def build_footer(self):
         cfg = self.cfg
