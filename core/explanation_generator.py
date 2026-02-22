@@ -49,6 +49,11 @@ def _compute_input_hash(question_obj: Dict[str, Any], model: str) -> str:
     return hashlib.sha256(raw).hexdigest()
 
 
+def explanation_cache_path(cert: str, question_obj: Dict[str, Any], model: str) -> Path:
+    input_hash = _compute_input_hash(question_obj, model)
+    return _cache_path(cert, input_hash)
+
+
 def generate_explanation(
     cert: str,
     question_obj: Dict[str, Any],
