@@ -2,5 +2,6 @@
 assets/sfx/
 __pycache__/
 output/
+data/
 data/cache/
 data/saa.json

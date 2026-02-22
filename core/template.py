@@ -500,7 +500,7 @@ class AWSVideoTemplate:
 
         marks = self._load_speech_marks()
         if marks:
-            for idx, (start, text) in enumerate(marks):
+            for idx, (start, text, _t) in enumerate(marks):
                 end = marks[idx + 1][0] if idx + 1 < len(marks) else self.dur
                 s, e = self._clip_window(start, end)
                 d = max(e - s, 0.0)
@@ -570,11 +570,12 @@ class AWSVideoTemplate:
                 last = last[:-3].rstrip()
             trimmed[-1] = f"{last}..."
         return min_size, " ".join(trimmed)
-    def _load_speech_marks(self) -> List[Tuple[float, str]]:
+
+    def _load_speech_marks(self) -> List[Tuple[float, str, str]]:
         marks_path = Path(f"{self.audio_path}.marks.json")
         if not marks_path.exists():
             return []
-        marks: List[Tuple[float, str]] = []
+        marks: List[Tuple[float, str, str]] = []
         try:
             with marks_path.open("r", encoding="utf-8") as f:
                 for line in f:
@@ -582,12 +583,13 @@ class AWSVideoTemplate:
                     if not line:
                         continue
                     obj = json.loads(line)
-                    if obj.get("type") != "sentence":
+                    mark_type = obj.get("type", "")
+                    if mark_type != "sentence":
                         continue
                     t = float(obj.get("time", 0.0)) / 1000.0
                     v = str(obj.get("value", "")).strip()
                     if v:
-                        marks.append((t, v))
+                        marks.append((t, v, mark_type))
         except Exception:
             return []
         return marks
