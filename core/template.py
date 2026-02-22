@@ -6,6 +6,7 @@ from typing import Any, Dict, List, Tuple
 import numpy as np
 from PIL import Image, ImageDraw, ImageFont
 import json
+import math
 
 # Pillow 10+ compatibility for MoviePy 1.0.3
 if not hasattr(Image, "ANTIALIAS"):
@@ -17,6 +18,7 @@ from moviepy.editor import (
     CompositeAudioClip,
     CompositeVideoClip,
     ImageClip,
+    VideoClip,
 )
 
 def hex_to_rgb(hex_color: str) -> tuple[int, int, int]:
@@ -140,6 +142,41 @@ class AWSVideoTemplate:
         draw.rounded_rectangle([0, 0, w, h], radius=radius, fill=fill_rgba)
         return np.array(img)
 
+    def _countdown_ring_clip(
+        self,
+        radius: int,
+        thickness: int,
+        start: float,
+        end: float,
+        color_hex: str,
+    ) -> VideoClip:
+        duration = max(end - start, 0.0)
+        if duration <= 0:
+            return VideoClip(lambda t: np.zeros((1, 1, 4), dtype=np.uint8), duration=0)
+
+        color = self._hex_to_rgba(color_hex, 255)
+        size = radius * 2 + thickness * 2
+
+        def make_rgba(t: float) -> np.ndarray:
+            frac = 1.0 - min(max(t / duration, 0.0), 1.0)
+            end_angle = 360.0 * frac
+            img = Image.new("RGBA", (size, size), (0, 0, 0, 0))
+            draw = ImageDraw.Draw(img)
+            bbox = [thickness, thickness, size - thickness, size - thickness]
+            draw.arc(bbox, start=-90, end=-90 + end_angle, fill=color, width=thickness)
+            return np.array(img)
+
+        def make_frame(t: float) -> np.ndarray:
+            rgba = make_rgba(t)
+            return rgba[:, :, :3]
+
+        def make_mask(t: float) -> np.ndarray:
+            rgba = make_rgba(t)
+            return rgba[:, :, 3] / 255.0
+
+        clip = VideoClip(make_frame=make_frame, duration=duration)
+        mask = VideoClip(make_frame=make_mask, duration=duration, ismask=True)
+        return clip.set_mask(mask).set_start(start)
     def _shadowed_text_clip(
         self,
         txt: str,
@@ -406,6 +443,16 @@ class AWSVideoTemplate:
         ).set_position(("center", y - 50)).set_start(countdown_start).set_duration(countdown_end - countdown_start).set_opacity(0.7)
 
         clips: List = [label]
+        ring_radius = 40
+        ring_thickness = 4
+        ring = self._countdown_ring_clip(
+            radius=ring_radius,
+            thickness=ring_thickness,
+            start=countdown_start,
+            end=countdown_end,
+            color_hex=cfg.accent,
+        ).set_position((cfg.width // 2 - ring_radius - ring_thickness, y - ring_thickness))
+        clips.append(ring)
         for i, num in enumerate([5, 4, 3, 2, 1]):
             s = countdown_start + i
             e = s + 1.0
@@ -440,8 +487,27 @@ class AWSVideoTemplate:
             font_path=self._font(self.cfg.font_bold),
         )
         engage_y = card_y + (cfg.card_height - engage.h) // 2
-        engage = engage.set_position(("center", engage_y)).set_start(s).set_duration(d).fadein(0.35).fadeout(0.35)
-        return engage
+        engage = engage.set_position(("center", engage_y)).set_duration(d)
+
+        icon = self.make_text_clip(
+            "👇",
+            fontsize=64,
+            color_hex="#FFFFFF",
+            max_width=120,
+            align="center",
+            font_path=self._font(self.cfg.font_bold),
+            shadow=False,
+        )
+        icon_x = (cfg.width - icon.w) // 2
+        icon_base_y = engage_y + engage.h + 8
+        icon = icon.set_position(lambda t: (icon_x, icon_base_y + 6 * math.sin(2 * math.pi * 1.2 * t))).set_duration(d)
+
+        composite = CompositeVideoClip(
+            [engage, icon],
+            size=(cfg.width, cfg.height),
+            bg_color=None,
+        ).set_start(s).set_duration(d).fadein(0.35).fadeout(0.35)
+        return composite
 
     def build_reveal(self):
         cfg = self.cfg
