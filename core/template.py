@@ -40,15 +40,15 @@ class TemplateConfig:
     hook_start: float = 0.0
     hook_end: float = 2.0
 
-    qa_start: float = 4.0
+    qa_start: float = 5.0
 
-    engage_start: float = 13.0
-    engage_end: float = 16.0
+    engage_start: float = 12.0
+    engage_end: float = 15.0
 
-    reveal_start: float = 16.0
-    reveal_end: float = 18.0
+    reveal_start: float = 15.0
+    reveal_end: float = 17.0
 
-    explain_start: float = 18.0
+    explain_start: float = 17.0
 
     outro_last_seconds: float = 0.0
 
@@ -384,8 +384,8 @@ class AWSVideoTemplate:
         answer_start_y = card_y + 360
         y = answer_start_y - 90
 
-        countdown_start = 8.0
-        countdown_end = 13.0
+        countdown_start = 7.0
+        countdown_end = 12.0
         if countdown_end <= countdown_start:
             return []
 
@@ -544,7 +544,7 @@ class AWSVideoTemplate:
         pop_path = Path("assets/sfx/pop.wav")
         if pop_path.exists():
             try:
-                pop = AudioFileClip(str(pop_path)).volumex(0.2).set_start(self.cfg.reveal_start)
+                pop = AudioFileClip(str(pop_path)).volumex(0.2).set_start(self.cfg.reveal_start + 0.3)
                 layers.append(pop)
             except Exception:
                 pass
