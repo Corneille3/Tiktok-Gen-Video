@@ -544,16 +544,17 @@ class AWSVideoTemplate:
         hl_x = 90
         hl_w = cfg.width - 180
         hl_h = 90
+        reveal_offset_y = 40
 
         if hasattr(self, "_answer_positions") and correct in self._answer_positions:
             y, h = self._answer_positions[correct]
-            hl_y = y - 18
+            hl_y = y - 18 + reveal_offset_y
             hl_h = h + 36
         else:
             answer_start_y = card_y + 360
             line_gap = 105
             correct_idx = {"A": 0, "B": 1, "C": 2, "D": 3}[correct]
-            hl_y = answer_start_y + correct_idx * line_gap - 18
+            hl_y = answer_start_y + correct_idx * line_gap - 18 + reveal_offset_y
 
         # green rounded rectangle behind correct answer
         hl_img = self._rounded_rect_rgba((hl_w, hl_h), radius=26, fill_rgba=(0, 255, 127, 55))
@@ -610,7 +611,7 @@ class AWSVideoTemplate:
                 align="left",
                 font_path=self._font(self.cfg.font_bold),
                 shadow=True,
-            ).set_position((110, y)).set_start(s).set_duration(d).fadein(0.2)
+            ).set_position((110, y + reveal_offset_y)).set_start(s).set_duration(d).fadein(0.2)
             answer_text = answer_text.resize(lambda t: 1.0 + 0.06 * min(max(t, 0.0), 0.4) / 0.4)
             layers.append(answer_text)
 
