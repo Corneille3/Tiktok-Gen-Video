@@ -267,7 +267,8 @@ class AWSVideoTemplate:
 
     def build_top_bar(self) -> List:
         cfg = self.cfg
-        bar = ColorClip(size=(cfg.width, cfg.top_bar_h), color=hex_to_rgb(cfg.accent), duration=self.dur).set_position((0, 0))
+        bar = ColorClip(size=(cfg.width, cfg.top_bar_h), color=hex_to_rgb(cfg.accent), duration=self.dur)
+        bar = bar.set_position(lambda t: (0, -cfg.top_bar_h + min(max(t, 0.0), 0.4) / 0.4 * cfg.top_bar_h))
         title = self.make_text_clip(
             f"AWS {self.cert} • {self.day_label}",
             fontsize=52,
@@ -275,7 +276,8 @@ class AWSVideoTemplate:
             max_width=cfg.width - 80,
             align="left",
             font_path=self._font(cfg.font_bold),
-        ).set_position((40, 30)).set_duration(self.dur)
+        )
+        title = title.set_position(lambda t: (40, -cfg.top_bar_h + 30 + min(max(t, 0.0), 0.4) / 0.4 * cfg.top_bar_h)).set_duration(self.dur)
         return [bar, title]
 
     def build_card(self):
@@ -319,6 +321,7 @@ class AWSVideoTemplate:
             font_path=self._font(self.cfg.font_bold),
             shadow=True,
         ).set_position((90, card_y + 60)).set_start(start).set_duration(d).fadein(0.25)
+        q_clip = q_clip.resize(lambda t: 0.98 + 0.02 * min(max(t, 0.0), 0.3) / 0.3)
         # Optional overlay hint (recommended for long questions)
         hint_text = "Pause to read • Answers next 👇"
         hint_text_clip = self.make_text_clip(
@@ -364,7 +367,9 @@ class AWSVideoTemplate:
         clips: List = []
         self._answer_positions = {}
 
-        for letter, text in [("A", c["A"]), ("B", c["B"]), ("C", c["C"]), ("D", c["D"])]:
+        stagger = 0.18
+        for i, (letter, text) in enumerate([("A", c["A"]), ("B", c["B"]), ("C", c["C"]), ("D", c["D"])]):
+            s = start + i * stagger
             clip = self.make_text_clip(
                 f"{letter}. {text}",
                 fontsize=fontsize,
@@ -372,7 +377,7 @@ class AWSVideoTemplate:
                 max_width=self.cfg.safe_width,
                 align="left",
                 font_path=self._font(self.cfg.font_med),
-            ).set_position((110, y)).set_start(start).set_duration(d).fadein(0.25)
+            ).set_position((110, y)).set_start(s).set_duration(max(0.1, end - s)).fadein(0.25)
             clips.append(clip)
             self._answer_positions[letter] = (y, clip.h)
             y += line_gap
@@ -463,14 +468,19 @@ class AWSVideoTemplate:
 
         # green rounded rectangle behind correct answer
         hl_img = self._rounded_rect_rgba((hl_w, hl_h), radius=26, fill_rgba=(0, 255, 127, 55))
+        def _pulse_scale(t: float) -> float:
+            tt = min(max(t, 0.0), 0.6)
+            if tt <= 0.3:
+                return 1.0 + 0.07 * (tt / 0.3)
+            return 1.07 - 0.07 * ((tt - 0.3) / 0.3)
+
         highlight = (
             ImageClip(hl_img, ismask=False)
             .set_position((hl_x, hl_y))
             .set_start(s)
             .set_duration(d)
             .fadein(0.3)
-            # slight scale 1.0 -> 1.05 in first second
-            .resize(lambda t: 1.0 + 0.05 * min(max(t, 0.0), 1.0))
+            .resize(_pulse_scale)
         )
         return highlight
 
