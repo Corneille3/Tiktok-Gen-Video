@@ -419,6 +419,7 @@ class AWSVideoTemplate:
             self._answer_positions[letter] = (y, clip.h)
             y += line_gap
 
+        self._answer_fontsize = fontsize
         return clips
 
     def build_countdown(self) -> List:
@@ -489,15 +490,19 @@ class AWSVideoTemplate:
         engage_y = card_y + (cfg.card_height - engage.h) // 2
         engage = engage.set_position(("center", engage_y)).set_duration(d)
 
-        icon = self.make_text_clip(
-            "👇",
-            fontsize=64,
-            color_hex="#FFFFFF",
-            max_width=120,
-            align="center",
-            font_path=self._font(self.cfg.font_bold),
-            shadow=False,
-        )
+        icon_path = Path("assets/icons/tap.png")
+        if icon_path.exists():
+            icon = ImageClip(str(icon_path)).resize(width=64)
+        else:
+            icon = self.make_text_clip(
+                "👇",
+                fontsize=64,
+                color_hex="#FFFFFF",
+                max_width=120,
+                align="center",
+                font_path=self._font(self.cfg.font_bold),
+                shadow=False,
+            )
         icon_x = (cfg.width - icon.w) // 2
         icon_base_y = engage_y + engage.h + 8
         icon = icon.set_position(lambda t: (icon_x, icon_base_y + 6 * math.sin(2 * math.pi * 1.2 * t))).set_duration(d)
@@ -548,7 +553,27 @@ class AWSVideoTemplate:
             .fadein(0.3)
             .resize(_pulse_scale)
         )
-        return highlight
+        layers: List = [highlight]
+
+        if hasattr(self, "_answer_positions") and correct in self._answer_positions:
+            y, _h = self._answer_positions[correct]
+            try:
+                fontsize = int(getattr(self, "_answer_fontsize", 44))
+            except Exception:
+                fontsize = 44
+            answer_text = self.make_text_clip(
+                f"{correct}. {self.q['choices'][correct]}",
+                fontsize=fontsize,
+                color_hex=self.cfg.ok,
+                max_width=self.cfg.safe_width,
+                align="left",
+                font_path=self._font(self.cfg.font_bold),
+                shadow=True,
+            ).set_position((110, y)).set_start(s).set_duration(d).fadein(0.2)
+            answer_text = answer_text.resize(lambda t: 1.0 + 0.06 * min(max(t, 0.0), 0.4) / 0.4)
+            layers.append(answer_text)
+
+        return CompositeVideoClip(layers, size=(cfg.width, cfg.height), bg_color=None)
 
     def build_explanation(self):
         cfg = self.cfg
