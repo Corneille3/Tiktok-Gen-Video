@@ -416,6 +416,18 @@ class AWSVideoTemplate:
                 align="left",
                 font_path=self._font(self.cfg.font_med),
             ).set_position((110, y)).set_start(s).set_duration(max(0.1, end - s)).fadein(0.25)
+            # Subtle background strip for readability
+            strip_w = cfg.safe_width + 20
+            strip_h = clip.h + 8
+            strip_img = self._rounded_rect_rgba((strip_w, strip_h), radius=18, fill_rgba=(0, 0, 0, 80))
+            strip = (
+                ImageClip(strip_img)
+                .set_position((100, y - 4))
+                .set_start(s)
+                .set_duration(max(0.1, end - s))
+                .set_opacity(0.5)
+            )
+            clips.append(strip)
             clips.append(clip)
             self._answer_positions[letter] = (y, clip.h)
             y += line_gap
@@ -559,7 +571,30 @@ class AWSVideoTemplate:
             .fadein(0.3)
             .resize(_pulse_scale)
         )
-        layers: List = [highlight]
+        # Soft glow behind highlight
+        glow_img = self._rounded_rect_rgba((hl_w, hl_h), radius=30, fill_rgba=(0, 255, 127, 35))
+        glow = (
+            ImageClip(glow_img, ismask=False)
+            .set_position((hl_x - 6, hl_y - 6))
+            .set_start(s)
+            .set_duration(d)
+            .fadein(0.4)
+        )
+
+        # Subtle shimmer on highlight (opacity pulse via mask)
+        def _shimmer_opacity(t: float) -> float:
+            tt = min(max(t, 0.0), 0.8)
+            return 0.25 + 0.25 * math.sin(2 * math.pi * 1.6 * tt)
+
+        shimmer = ImageClip(hl_img, ismask=False).set_position((hl_x, hl_y)).set_start(s).set_duration(d)
+        shimmer_mask = VideoClip(
+            make_frame=lambda t: np.ones((hl_h, hl_w)) * _shimmer_opacity(t),
+            ismask=True,
+            duration=d,
+        )
+        shimmer = shimmer.set_mask(shimmer_mask)
+
+        layers: List = [glow, highlight, shimmer]
 
         if hasattr(self, "_answer_positions") and correct in self._answer_positions:
             y, _h = self._answer_positions[correct]
