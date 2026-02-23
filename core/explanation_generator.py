@@ -33,7 +33,31 @@ def _cache_path(cert: str, input_hash: str) -> Path:
     return Path("data/cache/explanations") / cert / f"{input_hash}.json"
 
 
+def _normalize_correct_answers(correct: Any) -> list[str]:
+    if isinstance(correct, (list, tuple, set)):
+        items = [str(c).strip().upper() for c in correct if str(c).strip()]
+    elif isinstance(correct, str):
+        if "," in correct:
+            items = [c.strip().upper() for c in correct.split(",") if c.strip()]
+        else:
+            items = [correct.strip().upper()]
+    else:
+        items = [str(correct).strip().upper()]
+    return [c for c in items if c]
+
+
+def _format_correct_answers(correct_answers: list[str]) -> str:
+    if not correct_answers:
+        return "A"
+    if len(correct_answers) == 1:
+        return correct_answers[0]
+    if len(correct_answers) == 2:
+        return f"{correct_answers[0]} and {correct_answers[1]}"
+    return ", ".join(correct_answers[:-1]) + f", and {correct_answers[-1]}"
+
+
 def _compute_input_hash(question_obj: Dict[str, Any], model: str) -> str:
+    correct_answers = _normalize_correct_answers(question_obj["correct_answer"])
     payload = {
         "model": model,
         "question": question_obj["question"],
@@ -43,7 +67,7 @@ def _compute_input_hash(question_obj: Dict[str, Any], model: str) -> str:
             "C": question_obj["choices"]["C"],
             "D": question_obj["choices"]["D"],
         },
-        "correct_answer": question_obj["correct_answer"],
+        "correct_answers": correct_answers,
     }
     raw = json.dumps(payload, ensure_ascii=True, sort_keys=True).encode("utf-8")
     return hashlib.sha256(raw).hexdigest()
@@ -86,8 +110,9 @@ def generate_explanation(
 
     q = question_obj["question"]
     choices = question_obj["choices"]
-    correct = question_obj["correct_answer"]
-    correct_text = choices[correct]
+    correct_answers = _normalize_correct_answers(question_obj["correct_answer"])
+    correct_phrase = _format_correct_answers(correct_answers)
+    correct_texts = [choices[c] for c in correct_answers if c in choices]
 
     prompt = (
         f"Question: {q}\n"
@@ -96,8 +121,11 @@ def generate_explanation(
         f"B: {choices['B']}\n"
         f"C: {choices['C']}\n"
         f"D: {choices['D']}\n"
-        f"Correct answer: {correct} ({correct_text})\n\n"
-        "Explain in 2 short sentences why the correct answer is correct.\n"
+        f"Correct answers: {correct_phrase}"
+        + (f" ({' / '.join(correct_texts)})" if correct_texts else "")
+        + "\n\n"
+        "Explain in 2 short sentences why the correct answers are correct.\n"
+        "If there are multiple answers, mention both in the explanation.\n"
         "Keep it beginner friendly.\n"
         "Avoid technical jargon.\n"
         "Suitable for TikTok.\n"
@@ -138,7 +166,7 @@ def generate_explanation(
                 "C": question_obj["choices"]["C"],
                 "D": question_obj["choices"]["D"],
             },
-            "correct_answer": question_obj["correct_answer"],
+            "correct_answers": correct_answers,
         },
         "explanation": explanation,
     }

@@ -44,6 +44,24 @@ def generate_voice_mp3(
     c = question_obj["choices"]
     correct = question_obj["correct_answer"]
     expl = _ssml_escape(explanation)
+    if isinstance(correct, (list, tuple, set)):
+        correct_letters = [str(x).strip().upper() for x in correct if str(x).strip()]
+    elif isinstance(correct, str):
+        if "," in correct:
+            correct_letters = [x.strip().upper() for x in correct.split(",") if x.strip()]
+        else:
+            correct_letters = [correct.strip().upper()]
+    else:
+        correct_letters = [str(correct).strip().upper()]
+    correct_letters = [c for c in correct_letters if c]
+    if len(correct_letters) > 1:
+        if len(correct_letters) == 2:
+            correct_phrase = f"{correct_letters[0]} and {correct_letters[1]}"
+        else:
+            correct_phrase = ", ".join(correct_letters[:-1]) + f", and {correct_letters[-1]}"
+        correct_sentence = f"The correct answers are {correct_phrase}."
+    else:
+        correct_sentence = f"The correct answer is {correct_letters[0] if correct_letters else 'A'}."
 
     # SSML pacing for TikTok
     ssml = f"""
@@ -53,7 +71,7 @@ def generate_voice_mp3(
     <break time="12s"/>
     Comment A, B, C, or D.
     <break time="900ms"/>
-    The correct answer is {correct}.
+    {correct_sentence}
     <break time="350ms"/>
     {expl}
   </prosody>

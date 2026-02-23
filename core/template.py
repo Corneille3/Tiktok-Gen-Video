@@ -204,7 +204,7 @@ class AWSVideoTemplate:
         return s, max(s, e)
 
     def _fit_answer_layout(self, texts: List[str], max_width: int, available: float) -> Tuple[int, float, List[int]]:
-        # Fit 4 answers into available height by shrinking font size.
+        # Fit answers into available height by shrinking font size.
         min_size = 36
         for fontsize in range(46, min_size - 1, -1):
             font_path = self._font(self.cfg.font_med)
@@ -395,7 +395,8 @@ class AWSVideoTemplate:
         d = max(end - start, 0.1)
 
         c = self.q["choices"]
-        texts = [f"A. {c['A']}", f"B. {c['B']}", f"C. {c['C']}", f"D. {c['D']}"]
+        order = [letter for letter in ["A", "B", "C", "D", "E"] if letter in c]
+        texts = [f"{letter}. {c[letter]}" for letter in order]
         card_bottom = card_y + cfg.card_height
         answer_start_y = card_y + 360
         available = (card_bottom - 80) - answer_start_y
@@ -406,7 +407,8 @@ class AWSVideoTemplate:
         self._answer_positions = {}
 
         stagger = 0.18
-        for i, (letter, text) in enumerate([("A", c["A"]), ("B", c["B"]), ("C", c["C"]), ("D", c["D"])]):
+        for i, letter in enumerate(order):
+            text = c[letter]
             s = start + i * stagger
             clip = self.make_text_clip(
                 f"{letter}. {text}",
@@ -541,19 +543,35 @@ class AWSVideoTemplate:
 
         card_y = cfg.top_bar_h + cfg.card_top_gap
         correct = self.q["correct_answer"]
+        if isinstance(correct, (list, tuple, set)):
+            correct_letters = [str(c).strip().upper() for c in correct if str(c).strip()]
+        elif isinstance(correct, str):
+            if "," in correct:
+                correct_letters = [c.strip().upper() for c in correct.split(",") if c.strip()]
+            else:
+                correct_letters = [correct.strip().upper()]
+        else:
+            correct_letters = [str(correct).strip().upper()]
+        correct_letters = [c for c in correct_letters if c]
         hl_x = 90
         hl_w = cfg.width - 180
         hl_h = 90
         reveal_offset_y = 40
 
-        if hasattr(self, "_answer_positions") and correct in self._answer_positions:
-            y, h = self._answer_positions[correct]
-            hl_y = y - 18 + reveal_offset_y
-            hl_h = h + 36
+        if hasattr(self, "_answer_positions"):
+            first = next((c for c in correct_letters if c in self._answer_positions), None)
+            if first is not None:
+                y, h = self._answer_positions[first]
+                hl_y = y - 18 + reveal_offset_y
+                hl_h = h + 36
+            else:
+                hl_y = card_y + 360 - 18 + reveal_offset_y
         else:
             answer_start_y = card_y + 360
             line_gap = 105
-            correct_idx = {"A": 0, "B": 1, "C": 2, "D": 3}[correct]
+            order = [letter for letter in ["A", "B", "C", "D", "E"] if letter in self.q["choices"]]
+            first = correct_letters[0] if correct_letters else (order[0] if order else "A")
+            correct_idx = order.index(first) if first in order else 0
             hl_y = answer_start_y + correct_idx * line_gap - 18 + reveal_offset_y
 
         # green rounded rectangle behind correct answer
@@ -595,25 +613,65 @@ class AWSVideoTemplate:
         )
         shimmer = shimmer.set_mask(shimmer_mask)
 
-        layers: List = [glow, highlight, shimmer]
+        layers: List = []
 
-        if hasattr(self, "_answer_positions") and correct in self._answer_positions:
-            y, _h = self._answer_positions[correct]
+        def add_highlight(y: int, h: int):
+            local_h = h + 36
+            local_y = y - 18 + reveal_offset_y
+            hl_img = self._rounded_rect_rgba((hl_w, local_h), radius=26, fill_rgba=(0, 255, 127, 55))
+            highlight = (
+                ImageClip(hl_img, ismask=False)
+                .set_position((hl_x, local_y))
+                .set_start(s)
+                .set_duration(d)
+                .fadein(0.3)
+                .resize(_pulse_scale)
+            )
+            glow_img = self._rounded_rect_rgba((hl_w, local_h), radius=30, fill_rgba=(0, 255, 127, 35))
+            glow = (
+                ImageClip(glow_img, ismask=False)
+                .set_position((hl_x - 6, local_y - 6))
+                .set_start(s)
+                .set_duration(d)
+                .fadein(0.4)
+            )
+            shimmer = ImageClip(hl_img, ismask=False).set_position((hl_x, local_y)).set_start(s).set_duration(d)
+            shimmer_mask = VideoClip(
+                make_frame=lambda t: np.ones((local_h, hl_w)) * _shimmer_opacity(t),
+                ismask=True,
+                duration=d,
+            )
+            shimmer = shimmer.set_mask(shimmer_mask)
+            layers.extend([glow, highlight, shimmer])
+
+        if hasattr(self, "_answer_positions") and self._answer_positions:
+            for letter in correct_letters:
+                if letter in self._answer_positions:
+                    y, h = self._answer_positions[letter]
+                    add_highlight(y, h)
+        else:
+            layers.extend([glow, highlight, shimmer])
+
+        if hasattr(self, "_answer_positions") and self._answer_positions:
             try:
                 fontsize = int(getattr(self, "_answer_fontsize", 44))
             except Exception:
                 fontsize = 44
-            answer_text = self.make_text_clip(
-                f"{correct}. {self.q['choices'][correct]}",
-                fontsize=fontsize,
-                color_hex=self.cfg.ok,
-                max_width=self.cfg.safe_width,
-                align="left",
-                font_path=self._font(self.cfg.font_bold),
-                shadow=True,
-            ).set_position((110, y + reveal_offset_y)).set_start(s).set_duration(d).fadein(0.2)
-            answer_text = answer_text.resize(lambda t: 1.0 + 0.06 * min(max(t, 0.0), 0.4) / 0.4)
-            layers.append(answer_text)
+            for letter in correct_letters:
+                if letter not in self._answer_positions or letter not in self.q["choices"]:
+                    continue
+                y, _h = self._answer_positions[letter]
+                answer_text = self.make_text_clip(
+                    f"{letter}. {self.q['choices'][letter]}",
+                    fontsize=fontsize,
+                    color_hex=self.cfg.ok,
+                    max_width=self.cfg.safe_width,
+                    align="left",
+                    font_path=self._font(self.cfg.font_bold),
+                    shadow=True,
+                ).set_position((110, y + reveal_offset_y)).set_start(s).set_duration(d).fadein(0.2)
+                answer_text = answer_text.resize(lambda t: 1.0 + 0.06 * min(max(t, 0.0), 0.4) / 0.4)
+                layers.append(answer_text)
 
         return CompositeVideoClip(layers, size=(cfg.width, cfg.height), bg_color=None)
 

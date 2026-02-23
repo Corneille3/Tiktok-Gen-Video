@@ -22,8 +22,14 @@ def load_questions(cert: str, data_dir: str = "data") -> List[Dict[str, Any]]:
         if not isinstance(q["choices"], dict):
             raise ValueError(f"'choices' must be an object/dict: {q}")
 
-        if q["correct_answer"] not in q["choices"]:
-            raise ValueError(f"correct_answer must be one of choices keys: {q}")
+        correct = q["correct_answer"]
+        if isinstance(correct, (list, tuple, set)):
+            missing = [c for c in correct if c not in q["choices"]]
+            if missing:
+                raise ValueError(f"correct_answer contains invalid choices {missing}: {q}")
+        else:
+            if correct not in q["choices"]:
+                raise ValueError(f"correct_answer must be one of choices keys: {q}")
 
         for letter in ("A", "B", "C", "D"):
             if letter not in q["choices"]:
