@@ -306,9 +306,67 @@ class AWSVideoTemplate:
         cfg = self.cfg
         bar = ColorClip(size=(cfg.width, cfg.top_bar_h), color=hex_to_rgb(cfg.accent), duration=self.dur)
         bar = bar.set_position(lambda t: (0, -cfg.top_bar_h + min(max(t, 0.0), 0.4) / 0.4 * cfg.top_bar_h))
+        episode = int(self.q["id"])
+        videos_per_day = 3
+        days_total = 30
+        day_number = (episode + videos_per_day - 1) // videos_per_day
+        if day_number > days_total:
+            day_number = days_total
+        video_of_day = ((episode - 1) % videos_per_day) + 1
+        day_label = f"Day {day_number}/{days_total} • Video {video_of_day}/{videos_per_day}"
+        top_font_size = 46
+
+        def _truncate_to_px(text: str, font: ImageFont.FreeTypeFont, max_px: int) -> str:
+            if not text:
+                return ""
+            if font.getlength(text) <= max_px:
+                return text
+            ell = "…"
+            lo, hi = 0, len(text)
+            while lo < hi:
+                mid = (lo + hi) // 2
+                candidate = text[:mid].rstrip() + ell
+                if font.getlength(candidate) <= max_px:
+                    lo = mid + 1
+                else:
+                    hi = mid
+            final = text[: max(lo - 1, 0)].rstrip() + ell
+            return final if final != ell else ""
+
+        domain_name = str(self.q.get("domain_name", "")).strip()
+        domain_suffix = ""
+        if domain_name:
+            try:
+                title_font = ImageFont.truetype(self._font(cfg.font_bold), size=top_font_size)
+            except Exception:
+                title_font = ImageFont.load_default()
+            max_domain_px = 420
+            trimmed = _truncate_to_px(domain_name, title_font, max_domain_px)
+            if trimmed:
+                domain_suffix = f" - {trimmed}"
+
+        top_label = f"AWS {self.cert} • {day_label}{domain_suffix}"
+        max_top_px = cfg.width - 96
+        font_size = top_font_size
+        try:
+            title_font = ImageFont.truetype(self._font(cfg.font_bold), size=font_size)
+        except Exception:
+            title_font = ImageFont.load_default()
+        if title_font.getlength(top_label) > max_top_px:
+            min_size = 38
+            while font_size > min_size:
+                font_size -= 2
+                try:
+                    title_font = ImageFont.truetype(self._font(cfg.font_bold), size=font_size)
+                except Exception:
+                    title_font = ImageFont.load_default()
+                if title_font.getlength(top_label) <= max_top_px:
+                    break
+            if title_font.getlength(top_label) > max_top_px:
+                top_label = _truncate_to_px(top_label, title_font, max_top_px)
         title = self.make_text_clip(
-            f"AWS {self.cert} • {self.day_label}",
-            fontsize=52,
+            top_label,
+            fontsize=font_size,
             color_hex="#FFFFFF",
             max_width=cfg.width - 80,
             align="left",
@@ -333,8 +391,12 @@ class AWSVideoTemplate:
         if d <= 0:
             return None
 
+        hook_text = (self.q.get("hook") or "").strip()
+        if not hook_text:
+            hook_text = "🚨 Most People Fail This AWS Question"
+
         hook = self.make_text_clip(
-            "🚨 Most People Fail This AWS Question",
+            hook_text,
             fontsize=64,
             color_hex="#FFFFFF",
             max_width=cfg.safe_width,
@@ -536,11 +598,10 @@ class AWSVideoTemplate:
         if mark_time is not None:
             s, e = self._clip_window(mark_time, mark_time + reveal_len)
         else:
-            s, e = self._clip_window(cfg.reveal_start, cfg.reveal_end)
+            s, e = self._clip_window(cfg.reveal_start, cfg.reveal_start + reveal_len)
         d = max(e - s, 0.0)
         if d <= 0:
             return None
-
         card_y = cfg.top_bar_h + cfg.card_top_gap
         correct = self.q["correct_answer"]
         if isinstance(correct, (list, tuple, set)):
@@ -559,6 +620,7 @@ class AWSVideoTemplate:
         reveal_offset_y = 40
 
         if hasattr(self, "_answer_positions"):
+            reveal_offset_y = 0
             first = next((c for c in correct_letters if c in self._answer_positions), None)
             if first is not None:
                 y, h = self._answer_positions[first]
@@ -673,11 +735,13 @@ class AWSVideoTemplate:
                 answer_text = answer_text.resize(lambda t: 1.0 + 0.06 * min(max(t, 0.0), 0.4) / 0.4)
                 layers.append(answer_text)
 
+        self._reveal_actual_end = e
         return CompositeVideoClip(layers, size=(cfg.width, cfg.height), bg_color=None)
 
     def build_explanation(self):
         cfg = self.cfg
         explain_start = cfg.explain_start
+        explain_start = max(explain_start, getattr(self, "_reveal_actual_end", explain_start))
         explain_end = max(explain_start, self.dur - cfg.outro_last_seconds)
         s, e = self._clip_window(explain_start, explain_end)
         d = max(e - s, 0.0)
@@ -699,6 +763,7 @@ class AWSVideoTemplate:
         cfg = self.cfg
         clips: List = []
         subtitle_x = (cfg.width - cfg.safe_width) // 2
+        explain_start = max(cfg.explain_start, getattr(self, "_reveal_actual_end", cfg.explain_start))
 
         marks = self._load_speech_marks()
         if marks:
@@ -739,7 +804,7 @@ class AWSVideoTemplate:
 
         add("Comment A, B, C, or D.", cfg.engage_start, cfg.engage_end)
         add(f"The correct answer is {self.q['correct_answer']}.", cfg.reveal_start, cfg.reveal_end)
-        add(self.explanation, cfg.explain_start, self.dur)
+        add(self.explanation, explain_start, self.dur)
 
         return clips
 
@@ -814,7 +879,7 @@ class AWSVideoTemplate:
         footer = self.make_text_clip(
             "@certpulse  •  Follow to pass AWS 🚀",
             fontsize=38,
-            color_hex="#FFFFFF",
+            color_hex=cfg.accent,
             max_width=self.cfg.width - 120,
             align="center",
             font_path=self._font(self.cfg.font_med),
