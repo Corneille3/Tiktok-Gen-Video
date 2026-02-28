@@ -1,4 +1,5 @@
 .env
+.env.local
 assets/sfx/
 __pycache__/
 output/
